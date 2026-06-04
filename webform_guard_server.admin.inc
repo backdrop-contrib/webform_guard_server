@@ -188,6 +188,72 @@ function webform_guard_server_blocklist_delete_form_submit($form, &$form_state) 
 }
 
 /**
+ * Form callback: manually add an identifier to the blocklist.
+ *
+ * @param array $form
+ *   The form array.
+ * @param array $form_state
+ *   The form state array.
+ *
+ * @return array
+ *   The form render array.
+ */
+function webform_guard_server_blocklist_add_form($form, &$form_state) {
+  $form['identifier_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Field type'),
+    '#description' => t('The type of identifier being added. Used to normalise the value before storing.'),
+    '#options' => array(
+      'email' => t('Email address'),
+      'tel' => t('Telephone number'),
+      'url' => t('Website URL'),
+      'textfield' => t('Text (name, keyword, phrase)'),
+    ),
+    '#required' => TRUE,
+    '#default_value' => 'email',
+  );
+
+  $form['identifier_value'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Identifier value'),
+    '#description' => t('The value to block, e.g. an email address or keyword. It will be normalised before storing.'),
+    '#required' => TRUE,
+    '#size' => 80,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Add to blocklist'),
+  );
+
+  return $form;
+}
+
+/**
+ * Submit handler for the manual blocklist add form.
+ *
+ * @param array $form
+ *   The form array.
+ * @param array $form_state
+ *   The form state array.
+ */
+function webform_guard_server_blocklist_add_form_submit($form, &$form_state) {
+  $type = $form_state['values']['identifier_type'];
+  $value = trim($form_state['values']['identifier_value']);
+
+  $added = webform_guard_server_add_spam_identifier('manual', $value, $type);
+
+  if ($added) {
+    backdrop_set_message(t('Identifier added to blocklist.'));
+  }
+  else {
+    backdrop_set_message(t('The identifier could not be added. It may be empty after normalisation.'), 'warning');
+  }
+
+  $form_state['redirect'] = 'admin/config/webform-guard-server/blocklist';
+}
+
+/**
  * Page callback: list all registered client sites.
  *
  * @return string

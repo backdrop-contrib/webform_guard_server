@@ -58,6 +58,15 @@ function webform_guard_server_menu() {
     'type' => MENU_LOCAL_TASK,
   );
 
+  $items['admin/config/webform-guard-server/blocklist/add'] = array(
+    'title' => 'Add to blocklist',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('webform_guard_server_blocklist_add_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'webform_guard_server.admin.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+
   $items['admin/config/webform-guard-server/blocklist/%/delete'] = array(
     'title' => 'Remove from blocklist',
     'page callback' => 'backdrop_get_form',

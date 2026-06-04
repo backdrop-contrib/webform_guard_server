@@ -1,0 +1,8 @@
+name = Webform Guard Server
+description = Provides a centralized API for Webform Guard clients to validate form submissions and report spam.
+project = Acuity
+package = Acuity
+type = module
+backdrop = 1.x
+version = 0.0.3
+configure = admin/config/webform-guard-server/settings

@@ -1,0 +1,254 @@
+<?php
+
+/**
+ * @file
+ * Install and schema callbacks for Webform Guard Server.
+ */
+
+/**
+ * Schema for Webform Guard Server.
+ */
+function webform_guard_server_schema() {
+  $schema['webform_guard_spam_identifier'] = array(
+    'description' => 'Stores spam identifier values reported by Webform Guard clients.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'field' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'identifier' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'site_identifier' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'count' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'last_seen' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array(
+      'field_identifier' => array('field', 'identifier'),
+    ),
+  );
+
+  $schema['webform_guard_site_metrics'] = array(
+    'description' => 'Stores site-level blocked submission counts for Webform Guard clients.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'site_identifier' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'blocked_count' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'last_blocked' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array(
+      'site_identifier' => array('site_identifier'),
+    ),
+  );
+
+  $schema['webform_guard_clients'] = array(
+    'description' => 'Registered client sites authorised to use the Webform Guard service.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'label' => array(
+        'description' => 'Human-readable name for this client site.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'site_identifier' => array(
+        'description' => 'Unique identifier for the client site, e.g. mysite.co.uk.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'api_key' => array(
+        'description' => 'API key used by this client to authenticate requests.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'subscription_status' => array(
+        'description' => 'Subscription status: free, active, or expired.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'free',
+      ),
+      'subscription_expires' => array(
+        'description' => 'Unix timestamp when the subscription expires. NULL for free or lifetime.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'notes' => array(
+        'description' => 'Optional admin notes about this client.',
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+      'last_seen' => array(
+        'description' => 'Unix timestamp of the most recent authenticated request from this client.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'check_count' => array(
+        'description' => 'Total number of submission checks received from this client.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array(
+      'site_identifier' => array('site_identifier'),
+      'api_key' => array('api_key'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Update hook to create the spam identifier table for existing installations.
+ */
+function webform_guard_server_update_8001() {
+  $schema = webform_guard_server_schema();
+  if (!db_table_exists('webform_guard_spam_identifier')) {
+    db_create_table('webform_guard_spam_identifier', $schema['webform_guard_spam_identifier']);
+  }
+
+  return t('Create the Webform Guard spam identifier table.');
+}
+
+/**
+ * Add metrics fields to the spam identifier table.
+ */
+function webform_guard_server_update_8002() {
+  $schema = webform_guard_server_schema();
+  if (db_table_exists('webform_guard_spam_identifier')) {
+    if (!db_field_exists('webform_guard_spam_identifier', 'count')) {
+      db_add_field('webform_guard_spam_identifier', 'count', $schema['webform_guard_spam_identifier']['fields']['count']);
+    }
+    if (!db_field_exists('webform_guard_spam_identifier', 'last_seen')) {
+      db_add_field('webform_guard_spam_identifier', 'last_seen', $schema['webform_guard_spam_identifier']['fields']['last_seen']);
+    }
+    if (!db_field_exists('webform_guard_spam_identifier', 'site_identifier')) {
+      db_add_field('webform_guard_spam_identifier', 'site_identifier', $schema['webform_guard_spam_identifier']['fields']['site_identifier']);
+    }
+  }
+
+  return t('Add count, site identifier, and last seen metrics to the Webform Guard spam identifier table.');
+}
+
+/**
+ * Add site metrics storage for blocked submission counts.
+ */
+function webform_guard_server_update_8003() {
+  $schema = webform_guard_server_schema();
+  if (!db_table_exists('webform_guard_site_metrics')) {
+    db_create_table('webform_guard_site_metrics', $schema['webform_guard_site_metrics']);
+  }
+
+  return t('Create the Webform Guard site metrics table.');
+}
+
+/**
+ * Add the client registry table for per-client API keys and subscription status.
+ */
+function webform_guard_server_update_8004() {
+  $schema = webform_guard_server_schema();
+  if (!db_table_exists('webform_guard_clients')) {
+    db_create_table('webform_guard_clients', $schema['webform_guard_clients']);
+  }
+
+  return t('Create the Webform Guard client registry table.');
+}
+
+/**
+ * Add last_seen column to the client registry table.
+ */
+function webform_guard_server_update_8005() {
+  if (db_table_exists('webform_guard_clients') && !db_field_exists('webform_guard_clients', 'last_seen')) {
+    db_add_field('webform_guard_clients', 'last_seen', array(
+      'description' => 'Unix timestamp of the most recent authenticated request from this client.',
+      'type' => 'int',
+      'not null' => FALSE,
+      'default' => NULL,
+    ));
+  }
+
+  return t('Add last_seen column to Webform Guard client registry.');
+}
+
+/**
+ * Add check_count column to the client registry table.
+ */
+function webform_guard_server_update_8006() {
+  if (db_table_exists('webform_guard_clients') && !db_field_exists('webform_guard_clients', 'check_count')) {
+    db_add_field('webform_guard_clients', 'check_count', array(
+      'description' => 'Total number of submission checks received from this client.',
+      'type' => 'int',
+      'not null' => TRUE,
+      'default' => 0,
+    ));
+  }
+
+  return t('Add check_count column to Webform Guard client registry.');
+}

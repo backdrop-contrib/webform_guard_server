@@ -58,6 +58,8 @@ The following are on the roadmap but not yet implemented:
 * **Bulk blocklist management:** Import and export the blocklist as CSV or JSON via the admin UI.
 * **Per-client blocklists:** Allow individual client sites to maintain their own private blocklist in addition to the shared global one.
 * **Alter hook for normalisation:** A `backdrop_alter()` hook to let other modules register custom field-type normalisation rules without patching this module.
+* **Word and phrase blocklist:** A server-admin-managed list of blocked words and phrases checked against all submitted field values. No client changes required — the full submission payload is already sent. Planned support for contains, exact, and regex match types.
+* **Spam submission storage and analysis:** When a submission is reported as spam, save the full field payload for admin review. Allows patterns — recurring phrases, links, or content — to be identified and added to the word blocklist with a single click, across all client sites simultaneously. Particularly useful as spammers cycle through email addresses but reuse the same message content.
 
 ## Credits
 - Steve Moorhouse — Zulip (DrAlbany)

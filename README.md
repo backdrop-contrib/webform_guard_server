@@ -1,17 +1,17 @@
 # Webform Guard Server
 **Webform Guard Server** — A centralised REST API service for blocking spam webform submissions across multiple Backdrop CMS sites.
 
-Webform Guard Server is a Backdrop CMS module that acts as the intelligence hub for the Webform Guard system. It receives spam-check requests from remote client sites running the companion `webform_guard_client` module, validates API credentials, checks submissions against a shared blocklist, and returns a verdict. A single Webform Guard Server installation can protect an unlimited number of client sites, each with its own API key and subscription tier.
+Webform Guard Server is a Backdrop CMS module that acts as the intelligence hub for the Webform Guard system. It receives spam-check requests from remote client sites running the companion `webform_guard_client` module, validates API credentials, checks submissions against a shared blocklist, and returns a verdict. A single Webform Guard Server installation can protect an unlimited number of client sites, each with its own API key and subscription tier. Run your own server without restrictions, even on the same Backdrop CMS installation as the client module, or use a hosted service — see the Credits section for details.
 
-## Alpha Release Notes
-As an alpha release, the core API, blocklist engine, client registry, and admin interface are fully functional. The module is stable enough for testing in development environments. Before deploying to production, ensure your Backdrop CMS environment is running PHP 8.0+ and clear your system caches after installation to register the API routes and admin menu items.
+## Beta Release Notes
+As a beta release, the core API, blocklist engine, client registry, and admin interface are fully functional. The module is stable enough for testing in development environments. Before deploying to production, ensure your Backdrop CMS environment is running PHP 8.0+ and clear your system caches after installation to register the API routes and admin menu items.
 
 ## Features
 
 * **Centralised Spam Blocklist:** A single shared blocklist protects all registered client sites simultaneously. Spam reported by any client is blocked for all.
 * **Per-Client API Keys:** Each client site gets its own unique API key and subscription record. Compromise one key without affecting others.
 * **Subscription Management:** Three-tier subscription system (Free, Active, Expired) with optional expiry dates. Expired subscriptions degrade gracefully — submissions are allowed through rather than blocked.
-* **Three REST API Endpoints:** `POST /api/v1/check-submission` to validate a submission, `POST /api/v1/report-spam` to add an identifier to the blocklist, and `GET /api/v1/status` for health checks and connection testing.
+* **Three REST API Endpoints:** `POST /api/v1/webform-guard/check-submission` to validate a submission, `POST /api/v1/webform-guard/report-spam` to add an identifier to the blocklist, and `GET /api/v1/webform-guard/status` for health checks and connection testing. The `api/v1/webform-guard/` namespace ensures these routes do not conflict with other API modules installed on the same server.
 * **Token-Based Spam Reporting:** A public `report/{token}` page allows recipients to report spam directly from a link in their notification email — no login required. Tokens are HMAC-SHA256 signed with the client's API key and expire after 30 days.
 * **Admin UI:** Full admin interface for managing registered clients (add, edit, delete, generate API keys), viewing and removing blocklist entries, and toggling spam reporting on or off.
 * **Views Integration:** Exposes the spam identifier blocklist and per-site blocked-submission metrics as Views base tables for custom reporting.
@@ -20,7 +20,7 @@ As an alpha release, the core API, blocklist engine, client registry, and admin 
 ## Requirements
 
 - Backdrop CMS 1.x
-- PHP 8.0+
+- PHP 8.0+ (While the code may technically function with PHP 7.4 at this time, we strictly require PHP 8.0+ and will not address issues related to older PHP versions.)
 - Companion module: [Webform Guard Client](../webform_guard_client) (installed on each client site)
 
 ## Installation
@@ -63,10 +63,8 @@ The following are on the roadmap but not yet implemented:
 - Steve Moorhouse — Zulip (DrAlbany)
 - Claude Code by Anthropic assisted with development of this module.
 
-## Sponsorship
-- Albany Computer Services (https://www.albany-computers.co.uk)
-- Albany Web Design (https://www.albanywebdesign.co.uk)
-- Albany Hosting (https://www.albany-hosting.co.uk)
+- Current development is sponsored by [Albany Computer Services](https://www.albany-computers.co.uk), providers of computer support, [web design](https://www.albanywebdesign.co.uk), and [web hosting](https://www.albany-hosting.co.uk).
+- A hosted Webform Guard server is available for sites that prefer not to self-host. Contact the [maintainer](https://github.com/albanycomputers) to enquire.
 
 ## License
 This project is GPL v2 or later software. See the LICENSE.txt file in this directory for complete text.

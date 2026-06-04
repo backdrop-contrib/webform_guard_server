@@ -6,6 +6,28 @@
  */
 
 /**
+ * Implements hook_views_api().
+ */
+function webform_guard_server_views_api() {
+  return array(
+    'api' => 3,
+    'path' => backdrop_get_path('module', 'webform_guard_server'),
+  );
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function webform_guard_server_config_info() {
+  $config['webform_guard_server.settings'] = array(
+    'label' => 'Webform Guard Server settings',
+    'group' => 'system',
+  );
+
+  return $config;
+}
+
+/**
  * Implements hook_menu().
  */
 function webform_guard_server_menu() {
@@ -81,7 +103,7 @@ function webform_guard_server_menu() {
     'type' => MENU_CALLBACK,
   );
 
-  $items['report/%'] = array(
+  $items['report-spam/%'] = array(
     'title' => 'Report spam',
     'page callback' => 'webform_guard_server_report_page',
     'page arguments' => array(1),
@@ -89,21 +111,21 @@ function webform_guard_server_menu() {
     'type' => MENU_CALLBACK,
   );
 
-  $items['api/v1/check-submission'] = array(
+  $items['api/v1/webform-guard/check-submission'] = array(
     'title' => 'Webform Guard check submission',
     'page callback' => 'webform_guard_server_check_submission',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
 
-  $items['api/v1/report-spam'] = array(
+  $items['api/v1/webform-guard/report-spam'] = array(
     'title' => 'Webform Guard report spam',
     'page callback' => 'webform_guard_server_report_spam',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
 
-  $items['api/v1/status'] = array(
+  $items['api/v1/webform-guard/status'] = array(
     'title' => 'Webform Guard status',
     'page callback' => 'webform_guard_server_status',
     'access callback' => TRUE,
@@ -149,34 +171,31 @@ function webform_guard_server_json_response(array $data, $status_code = 200) {
 /**
  * Authenticate the incoming request and return the matching client record.
  *
- * Extracts the API key from the Authorization header (Bearer or ApiKey scheme)
- * or the X-Api-Key header, then looks it up in the client registry.
+ * Extracts the Bearer API key from the Authorization header, then looks it up
+ * in the client registry. Falls back to apache_request_headers() for servers
+ * that strip Authorization from $_SERVER.
  *
  * @return object|false
  *   The client row from webform_guard_clients on success, FALSE on failure.
  */
 function webform_guard_server_authorize_request() {
-  $headers = function_exists('apache_request_headers') ? apache_request_headers() : array();
   $authorization = '';
 
   if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
     $authorization = $_SERVER['HTTP_AUTHORIZATION'];
   }
-  elseif (!empty($headers['Authorization'])) {
-    $authorization = $headers['Authorization'];
-  }
-  elseif (!empty($_SERVER['HTTP_X_API_KEY'])) {
-    $authorization = 'ApiKey ' . $_SERVER['HTTP_X_API_KEY'];
-  }
-
-  $api_key = NULL;
-  if (stripos($authorization, 'Bearer ') === 0) {
-    $api_key = trim(substr($authorization, 7));
-  }
-  elseif (stripos($authorization, 'ApiKey ') === 0) {
-    $api_key = trim(substr($authorization, 7));
+  elseif (function_exists('apache_request_headers')) {
+    $headers = apache_request_headers();
+    if (!empty($headers['Authorization'])) {
+      $authorization = $headers['Authorization'];
+    }
   }
 
+  if (stripos($authorization, 'Bearer ') !== 0) {
+    return FALSE;
+  }
+
+  $api_key = trim(substr($authorization, 7));
   if (empty($api_key)) {
     return FALSE;
   }
@@ -223,7 +242,11 @@ function webform_guard_server_get_client_subscription($client) {
 }
 
 /**
- * Parse and return JSON request data.
+ * Parse and return JSON request data from the raw HTTP request body.
+ *
+ * Reads from php://input rather than $_POST because the client sends requests
+ * with Content-Type: application/json, which PHP does not automatically parse
+ * into $_POST. php://input provides the raw POST body regardless of content type.
  *
  * @return object|null
  *   Decoded JSON object, or NULL if the body is empty or not valid JSON.
@@ -241,41 +264,47 @@ function webform_guard_server_parse_json_request() {
 /**
  * Normalize a spam identifier value before storing or matching.
  *
- * Applies field-type-aware normalization so that minor formatting variations
- * of the same value produce a consistent blocklist key:
+ * Uses the explicit Webform component type supplied by the client to apply
+ * consistent normalization, ensuring the same value always produces the same
+ * blocklist key regardless of minor formatting differences:
  *   - email   — lowercase, trim
- *   - phone   — digits and leading + only (strips spaces, dashes, parentheses)
- *   - website — lowercase, trailing slash stripped
- *   - name / other — strip_tags(), trim
+ *   - tel     — digits and leading + only (strips spaces, dashes, parentheses)
+ *   - url     — lowercase, trailing slash stripped
+ *   - other   — strip_tags(), trim
  *
- * @param string $field
- *   The form field key, used to detect field type for normalization.
+ * @param string $type
+ *   The Webform component type (e.g. email, tel, url, textfield).
  * @param string $identifier
  *   The raw identifier value to normalize.
  *
  * @return string
  *   The normalized identifier value.
  */
-function webform_guard_server_normalize_spam_identifier($field, $identifier) {
+function webform_guard_server_normalize_spam_identifier($type, $identifier) {
   $normalized = trim(strip_tags((string) $identifier));
 
-  if (stripos($field, 'email') !== FALSE || strpos($normalized, '@') !== FALSE) {
-    // Email: lowercase for case-insensitive matching.
-    $normalized = backdrop_strtolower($normalized);
+  switch ($type) {
+    case 'email':
+      $normalized = backdrop_strtolower($normalized);
+      break;
+
+    case 'tel':
+      // Strip all formatting; preserve a leading + for international format.
+      $has_plus = ($normalized !== '' && $normalized[0] === '+');
+      $normalized = preg_replace('/\D/', '', $normalized);
+      if ($has_plus) {
+        $normalized = '+' . $normalized;
+      }
+      break;
+
+    case 'url':
+      $normalized = rtrim(backdrop_strtolower($normalized), '/');
+      break;
+
+    // @todo Consider additional normalisation for future types, e.g. collapsing
+    //   whitespace in name fields, or stripping www from URLs at a deeper level.
+    // textfield, textarea, and all other types: strip_tags() + trim only.
   }
-  elseif (preg_match('/phone|tel(ephone)?/i', $field)) {
-    // Phone: strip all formatting; preserve a leading + for international format.
-    $has_plus = ($normalized !== '' && $normalized[0] === '+');
-    $normalized = preg_replace('/\D/', '', $normalized);
-    if ($has_plus) {
-      $normalized = '+' . $normalized;
-    }
-  }
-  elseif (preg_match('/url|web.?site/i', $field)) {
-    // Website: lowercase and strip trailing slash for consistent matching.
-    $normalized = rtrim(backdrop_strtolower($normalized), '/');
-  }
-  // Name and all other fields: strip_tags() already applied above; trim only.
 
   return $normalized;
 }
@@ -284,15 +313,17 @@ function webform_guard_server_normalize_spam_identifier($field, $identifier) {
  * Check whether a spam identifier already exists.
  *
  * @param string $field
- *   The form field key.
+ *   The form field key used as the blocklist record key.
  * @param string $identifier
  *   The identifier value to check (will be normalized before lookup).
+ * @param string $type
+ *   The Webform component type, used to normalize the identifier correctly.
  *
  * @return bool
  *   TRUE if the identifier is in the blocklist, FALSE otherwise.
  */
-function webform_guard_server_spam_identifier_exists($field, $identifier) {
-  $identifier = webform_guard_server_normalize_spam_identifier($field, $identifier);
+function webform_guard_server_spam_identifier_exists($field, $identifier, $type) {
+  $identifier = webform_guard_server_normalize_spam_identifier($type, $identifier);
   $query = db_select('webform_guard_spam_identifier', 's')
     ->fields('s', array('id'))
     ->condition('field', $field)
@@ -309,18 +340,20 @@ function webform_guard_server_spam_identifier_exists($field, $identifier) {
  * normalized identifier already exists for that field.
  *
  * @param string $field
- *   The form field key.
+ *   The form field key used as the blocklist record key.
  * @param string $identifier
  *   The raw identifier value (will be normalized before storing).
+ * @param string $type
+ *   The Webform component type, used to normalize the identifier correctly.
  * @param string $site_identifier
  *   Optional site identifier of the reporting client.
  *
  * @return bool
  *   TRUE on success, FALSE if field or identifier is empty after normalization.
  */
-function webform_guard_server_add_spam_identifier($field, $identifier, $site_identifier = '') {
+function webform_guard_server_add_spam_identifier($field, $identifier, $type, $site_identifier = '') {
   $field = trim((string) $field);
-  $identifier = webform_guard_server_normalize_spam_identifier($field, $identifier);
+  $identifier = webform_guard_server_normalize_spam_identifier($type, $identifier);
   $site_identifier = trim((string) $site_identifier);
   if (empty($field) || empty($identifier)) {
     return FALSE;
@@ -377,11 +410,11 @@ function webform_guard_server_add_spam_identifier($field, $identifier, $site_ide
  *   The unique site identifier for the client.
  *
  * @return bool
- *   TRUE on success, FALSE if site_identifier is empty or the table does not exist.
+ *   TRUE on success, FALSE if site_identifier is empty.
  */
 function webform_guard_server_add_site_metric($site_identifier) {
   $site_identifier = trim((string) $site_identifier);
-  if (empty($site_identifier) || !db_table_exists('webform_guard_site_metrics')) {
+  if (empty($site_identifier)) {
     return FALSE;
   }
 
@@ -414,107 +447,6 @@ function webform_guard_server_add_site_metric($site_identifier) {
   return TRUE;
 }
 
-/**
- * Implements hook_views_data().
- */
-function webform_guard_server_views_data() {
-  $data = array();
-  $data['webform_guard_spam_identifier']['table']['group'] = t('Webform Guard');
-  $data['webform_guard_spam_identifier']['table']['base'] = array(
-    'field' => 'id',
-    'title' => t('Spam identifier'),
-    'help' => t('Spam identifiers reported by Webform Guard clients.'),
-  );
-
-  $data['webform_guard_spam_identifier']['field'] = array(
-    'title' => t('Identifier field'),
-    'help' => t('The form field key used to identify repeat spam submissions.'),
-    'field' => array('handler' => 'views_handler_field_default'),
-    'filter' => array('handler' => 'views_handler_filter_in_operator'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_spam_identifier']['identifier'] = array(
-    'title' => t('Identifier value'),
-    'help' => t('The normalized value used to identify repeat spam submissions.'),
-    'field' => array('handler' => 'views_handler_field_default'),
-    'filter' => array('handler' => 'views_handler_filter_string'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_spam_identifier']['count'] = array(
-    'title' => t('Spam count'),
-    'help' => t('The number of times this identifier was reported as spam.'),
-    'field' => array('handler' => 'views_handler_field_numeric'),
-    'filter' => array('handler' => 'views_handler_filter_numeric'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_spam_identifier']['last_seen'] = array(
-    'title' => t('Last seen'),
-    'help' => t('The most recent time this identifier was reported as spam.'),
-    'field' => array('handler' => 'views_handler_field_date'),
-    'filter' => array('handler' => 'views_handler_filter_date'),
-    'sort' => array('handler' => 'views_handler_sort_date'),
-  );
-
-  $data['webform_guard_spam_identifier']['site_identifier'] = array(
-    'title' => t('Site identifier'),
-    'help' => t('The site identifier reported by the client when the spam identifier was seen.'),
-    'field' => array('handler' => 'views_handler_field_default'),
-    'filter' => array('handler' => 'views_handler_filter_string'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_spam_identifier']['created'] = array(
-    'title' => t('First reported'),
-    'help' => t('The date this identifier was first reported as spam.'),
-    'field' => array('handler' => 'views_handler_field_date'),
-    'filter' => array('handler' => 'views_handler_filter_date'),
-    'sort' => array('handler' => 'views_handler_sort_date'),
-  );
-
-  $data['webform_guard_site_metrics']['table']['group'] = t('Webform Guard');
-  $data['webform_guard_site_metrics']['table']['base'] = array(
-    'field' => 'id',
-    'title' => t('Site metrics'),
-    'help' => t('Site-level blocked submission counts reported by Webform Guard.'),
-  );
-
-  $data['webform_guard_site_metrics']['site_identifier'] = array(
-    'title' => t('Site identifier'),
-    'help' => t('The unique identifier for the client site that reported blocked submissions.'),
-    'field' => array('handler' => 'views_handler_field_default'),
-    'filter' => array('handler' => 'views_handler_filter_string'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_site_metrics']['blocked_count'] = array(
-    'title' => t('Blocked count'),
-    'help' => t('The number of blocked submissions recorded for this site.'),
-    'field' => array('handler' => 'views_handler_field_numeric'),
-    'filter' => array('handler' => 'views_handler_filter_numeric'),
-    'sort' => array('handler' => 'views_handler_sort'),
-  );
-
-  $data['webform_guard_site_metrics']['last_blocked'] = array(
-    'title' => t('Last blocked'),
-    'help' => t('The timestamp of the most recent blocked submission for this site.'),
-    'field' => array('handler' => 'views_handler_field_date'),
-    'filter' => array('handler' => 'views_handler_filter_date'),
-    'sort' => array('handler' => 'views_handler_sort_date'),
-  );
-
-  $data['webform_guard_site_metrics']['created'] = array(
-    'title' => t('Created'),
-    'help' => t('The time this site metrics record was first created.'),
-    'field' => array('handler' => 'views_handler_field_date'),
-    'filter' => array('handler' => 'views_handler_filter_date'),
-    'sort' => array('handler' => 'views_handler_sort_date'),
-  );
-
-  return $data;
-}
 
 /**
  * API endpoint: check a webform submission for spam.
@@ -567,8 +499,9 @@ function webform_guard_server_check_submission() {
 
   if (!empty($request->spam_identifier->field) && !empty($request->spam_identifier->value)) {
     $field = trim((string) $request->spam_identifier->field);
+    $type = trim((string) $request->spam_identifier->type);
     $identifier_value = (string) $request->spam_identifier->value;
-    if (webform_guard_server_spam_identifier_exists($field, $identifier_value)) {
+    if (webform_guard_server_spam_identifier_exists($field, $identifier_value, $type)) {
       webform_guard_server_add_site_metric($client->site_identifier);
       webform_guard_server_json_response(
         array(
@@ -577,7 +510,8 @@ function webform_guard_server_check_submission() {
           'details' => 'A previously reported spam identifier was matched.',
           'spam_identifier' => array(
             'field' => $field,
-            'value' => webform_guard_server_normalize_spam_identifier($field, $identifier_value),
+            'type' => $type,
+            'value' => webform_guard_server_normalize_spam_identifier($type, $identifier_value),
           ),
           'subscription' => $subscription,
         )
@@ -645,6 +579,7 @@ function webform_guard_server_report_spam() {
     webform_guard_server_add_spam_identifier(
       trim((string) $request->spam_identifier->field),
       (string) $request->spam_identifier->value,
+      trim((string) $request->spam_identifier->type),
       $client->site_identifier
     );
   }
@@ -668,10 +603,11 @@ function webform_guard_server_report_spam() {
  * status, and updates the client's last_seen timestamp.
  */
 function webform_guard_server_status() {
+  $info = system_get_info('module', 'webform_guard_server');
   $response = array(
     'status' => 'ok',
     'service' => 'webform_guard_server',
-    'version' => '0.0.3',
+    'version' => !empty($info['version']) ? $info['version'] : 'dev',
   );
 
   $client = webform_guard_server_authorize_request();
@@ -793,6 +729,7 @@ function webform_guard_server_process_report_token($token) {
     webform_guard_server_add_spam_identifier(
       $payload->field,
       $payload->value,
+      $payload->type,
       $client->site_identifier
     );
   }

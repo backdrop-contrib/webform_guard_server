@@ -6,6 +6,13 @@
  */
 
 /**
+ * Implements hook_uninstall().
+ */
+function webform_guard_server_uninstall() {
+  config('webform_guard_server.settings')->delete();
+}
+
+/**
  * Schema for Webform Guard Server.
  */
 function webform_guard_server_schema() {
@@ -165,90 +172,3 @@ function webform_guard_server_schema() {
   return $schema;
 }
 
-/**
- * Update hook to create the spam identifier table for existing installations.
- */
-function webform_guard_server_update_8001() {
-  $schema = webform_guard_server_schema();
-  if (!db_table_exists('webform_guard_spam_identifier')) {
-    db_create_table('webform_guard_spam_identifier', $schema['webform_guard_spam_identifier']);
-  }
-
-  return t('Create the Webform Guard spam identifier table.');
-}
-
-/**
- * Add metrics fields to the spam identifier table.
- */
-function webform_guard_server_update_8002() {
-  $schema = webform_guard_server_schema();
-  if (db_table_exists('webform_guard_spam_identifier')) {
-    if (!db_field_exists('webform_guard_spam_identifier', 'count')) {
-      db_add_field('webform_guard_spam_identifier', 'count', $schema['webform_guard_spam_identifier']['fields']['count']);
-    }
-    if (!db_field_exists('webform_guard_spam_identifier', 'last_seen')) {
-      db_add_field('webform_guard_spam_identifier', 'last_seen', $schema['webform_guard_spam_identifier']['fields']['last_seen']);
-    }
-    if (!db_field_exists('webform_guard_spam_identifier', 'site_identifier')) {
-      db_add_field('webform_guard_spam_identifier', 'site_identifier', $schema['webform_guard_spam_identifier']['fields']['site_identifier']);
-    }
-  }
-
-  return t('Add count, site identifier, and last seen metrics to the Webform Guard spam identifier table.');
-}
-
-/**
- * Add site metrics storage for blocked submission counts.
- */
-function webform_guard_server_update_8003() {
-  $schema = webform_guard_server_schema();
-  if (!db_table_exists('webform_guard_site_metrics')) {
-    db_create_table('webform_guard_site_metrics', $schema['webform_guard_site_metrics']);
-  }
-
-  return t('Create the Webform Guard site metrics table.');
-}
-
-/**
- * Add the client registry table for per-client API keys and subscription status.
- */
-function webform_guard_server_update_8004() {
-  $schema = webform_guard_server_schema();
-  if (!db_table_exists('webform_guard_clients')) {
-    db_create_table('webform_guard_clients', $schema['webform_guard_clients']);
-  }
-
-  return t('Create the Webform Guard client registry table.');
-}
-
-/**
- * Add last_seen column to the client registry table.
- */
-function webform_guard_server_update_8005() {
-  if (db_table_exists('webform_guard_clients') && !db_field_exists('webform_guard_clients', 'last_seen')) {
-    db_add_field('webform_guard_clients', 'last_seen', array(
-      'description' => 'Unix timestamp of the most recent authenticated request from this client.',
-      'type' => 'int',
-      'not null' => FALSE,
-      'default' => NULL,
-    ));
-  }
-
-  return t('Add last_seen column to Webform Guard client registry.');
-}
-
-/**
- * Add check_count column to the client registry table.
- */
-function webform_guard_server_update_8006() {
-  if (db_table_exists('webform_guard_clients') && !db_field_exists('webform_guard_clients', 'check_count')) {
-    db_add_field('webform_guard_clients', 'check_count', array(
-      'description' => 'Total number of submission checks received from this client.',
-      'type' => 'int',
-      'not null' => TRUE,
-      'default' => 0,
-    ));
-  }
-
-  return t('Add check_count column to Webform Guard client registry.');
-}

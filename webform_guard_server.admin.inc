@@ -6,6 +6,25 @@
  */
 
 /**
+ * After-build callback: limit the subscription expiry year dropdown.
+ *
+ * Restricts the year select to the current year through current year + 10,
+ * since expiry dates in the past are not useful when creating or editing clients.
+ *
+ * @param array $element
+ *   The date form element after processing.
+ *
+ * @return array
+ *   The modified element.
+ */
+function webform_guard_server_limit_expiry_years($element) {
+  $current_year = (int) date('Y');
+  $years = range($current_year, $current_year + 10);
+  $element['year']['#options'] = array_combine($years, $years);
+  return $element;
+}
+
+/**
  * Settings form callback.
  *
  * @param array $form
@@ -304,6 +323,7 @@ function webform_guard_server_client_form($form, &$form_state, $client_id = NULL
     '#type' => 'date',
     '#title' => t('Subscription expiry date'),
     '#description' => t('Leave blank for free or non-expiring accounts.'),
+    '#after_build' => array('webform_guard_server_limit_expiry_years'),
     '#default_value' => ($client && !empty($client->subscription_expires))
       ? array(
           'year' => date('Y', $client->subscription_expires),

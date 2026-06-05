@@ -13,9 +13,139 @@ function webform_guard_server_uninstall() {
 }
 
 /**
+ * Implements hook_install().
+ *
+ * Seeds the default subscription tiers on first install.
+ */
+function webform_guard_server_install() {
+  $tiers = array(
+    array(
+      'name' => 'Free Trial',
+      'check_limit' => 30,
+      'check_period' => 'monthly',
+      'trial_days' => 30,
+      'weight' => 0,
+      'description' => '30 checks per month. Expires 30 days after signup.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Hosting Client',
+      'check_limit' => NULL,
+      'check_period' => NULL,
+      'trial_days' => NULL,
+      'weight' => 1,
+      'description' => 'Unlimited checks for managed hosting clients.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 1',
+      'check_limit' => 30,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 2,
+      'description' => '30 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 2',
+      'check_limit' => 60,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 3,
+      'description' => '60 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 3',
+      'check_limit' => 100,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 4,
+      'description' => '100 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 4',
+      'check_limit' => 200,
+      'check_period' => 'annual',
+      'trial_days' => NULL,
+      'weight' => 5,
+      'description' => '200 checks per year.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 5',
+      'check_limit' => 30,
+      'check_period' => 'daily',
+      'trial_days' => NULL,
+      'weight' => 6,
+      'description' => 'Rate-limited to 30 checks per day.',
+      'created' => REQUEST_TIME,
+    ),
+  );
+
+  foreach ($tiers as $tier) {
+    db_insert('webform_guard_tiers')->fields($tier)->execute();
+  }
+}
+
+/**
  * Schema for Webform Guard Server.
  */
 function webform_guard_server_schema() {
+  $schema['webform_guard_tiers'] = array(
+    'description' => 'Subscription tiers defining check limits and trial conditions for Webform Guard clients.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'description' => 'Human-readable tier name, e.g. "Free Trial" or "Tier 1".',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'check_limit' => array(
+        'description' => 'Maximum submission checks allowed per period. NULL means unlimited.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'check_period' => array(
+        'description' => 'Period over which the check limit applies: daily, monthly, annual, total, or NULL for unlimited.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'trial_days' => array(
+        'description' => 'If set, the client expiry date is auto-populated to this many days from signup. NULL for non-trial tiers.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'weight' => array(
+        'description' => 'Display order weight. Lower numbers appear first.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'description' => array(
+        'description' => 'Optional admin notes describing this tier.',
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+
   $schema['webform_guard_spam_identifier'] = array(
     'description' => 'Stores spam identifier values reported by Webform Guard clients.',
     'fields' => array(
@@ -112,6 +242,13 @@ function webform_guard_server_schema() {
         'not null' => TRUE,
         'default' => '',
       ),
+      'email' => array(
+        'description' => 'Contact email address for this client, used for reports and notifications.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
       'site_identifier' => array(
         'description' => 'Unique identifier for the client site, e.g. mysite.co.uk.',
         'type' => 'varchar',
@@ -150,6 +287,34 @@ function webform_guard_server_schema() {
         'not null' => FALSE,
         'default' => NULL,
       ),
+      'allowed_words' => array(
+        'description' => 'Comma-separated words/phrases this client is allowed to submit, removed from the global word blocklist at runtime. NULL means no exceptions.',
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+      // @todo Add a client-facing API endpoint (e.g. POST /api/v1/webform-guard/update-settings)
+      //   so client sites can set their own report_frequency by calling back to this server,
+      //   rather than requiring the server admin to update it manually.
+      'report_frequency' => array(
+        'description' => 'How often this client receives spam reports. Keys are defined in webform_guard_server.settings config.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'monthly',
+      ),
+      'tier_id' => array(
+        'description' => 'The subscription tier assigned to this client. References webform_guard_tiers.id.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'auto_renew' => array(
+        'description' => 'Flag indicating this client should be manually renewed on expiry. 1 = yes, 0 = no.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
       'check_count' => array(
         'description' => 'Total number of submission checks received from this client.',
         'type' => 'int',
@@ -170,5 +335,179 @@ function webform_guard_server_schema() {
   );
 
   return $schema;
+}
+
+/**
+ * Add email column to webform_guard_clients table.
+ */
+function webform_guard_server_update_1000() {
+  db_add_field('webform_guard_clients', 'email', array(
+    'description' => 'Contact email address for this client, used for reports and notifications.',
+    'type' => 'varchar',
+    'length' => 255,
+    'not null' => FALSE,
+    'default' => NULL,
+    'after' => 'label',
+  ));
+}
+
+/**
+ * Add webform_guard_tiers table with default tiers; add tier_id, auto_renew,
+ * and report_frequency to webform_guard_clients; add report_frequencies to
+ * active config.
+ */
+function webform_guard_server_update_1001() {
+  db_create_table('webform_guard_tiers', array(
+    'description' => 'Subscription tiers defining check limits and trial conditions for Webform Guard clients.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'check_limit' => array(
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'check_period' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'trial_days' => array(
+        'type' => 'int',
+        'not null' => FALSE,
+        'default' => NULL,
+      ),
+      'weight' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'description' => array(
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+  ));
+
+  $tiers = array(
+    array(
+      'name' => 'Free Trial',
+      'check_limit' => 30,
+      'check_period' => 'monthly',
+      'trial_days' => 30,
+      'weight' => 0,
+      'description' => '30 checks per month. Expires 30 days after signup.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Hosting Client',
+      'check_limit' => NULL,
+      'check_period' => NULL,
+      'trial_days' => NULL,
+      'weight' => 1,
+      'description' => 'Unlimited checks for managed hosting clients.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 1',
+      'check_limit' => 30,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 2,
+      'description' => '30 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 2',
+      'check_limit' => 60,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 3,
+      'description' => '60 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 3',
+      'check_limit' => 100,
+      'check_period' => 'monthly',
+      'trial_days' => NULL,
+      'weight' => 4,
+      'description' => '100 checks per month.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 4',
+      'check_limit' => 200,
+      'check_period' => 'annual',
+      'trial_days' => NULL,
+      'weight' => 5,
+      'description' => '200 checks per year.',
+      'created' => REQUEST_TIME,
+    ),
+    array(
+      'name' => 'Tier 5',
+      'check_limit' => 30,
+      'check_period' => 'daily',
+      'trial_days' => NULL,
+      'weight' => 6,
+      'description' => 'Rate-limited to 30 checks per day.',
+      'created' => REQUEST_TIME,
+    ),
+  );
+
+  foreach ($tiers as $tier) {
+    db_insert('webform_guard_tiers')->fields($tier)->execute();
+  }
+
+  db_add_field('webform_guard_clients', 'report_frequency', array(
+    'description' => 'How often this client receives spam reports. Keys defined in webform_guard_server.settings config.',
+    'type' => 'varchar',
+    'length' => 32,
+    'not null' => TRUE,
+    'default' => 'monthly',
+    'after' => 'notes',
+  ));
+
+  db_add_field('webform_guard_clients', 'tier_id', array(
+    'description' => 'The subscription tier assigned to this client. References webform_guard_tiers.id.',
+    'type' => 'int',
+    'not null' => FALSE,
+    'default' => NULL,
+    'after' => 'report_frequency',
+  ));
+
+  db_add_field('webform_guard_clients', 'auto_renew', array(
+    'description' => 'Flag indicating this client should be manually renewed on expiry. 1 = yes, 0 = no.',
+    'type' => 'int',
+    'size' => 'tiny',
+    'not null' => TRUE,
+    'default' => 0,
+    'after' => 'tier_id',
+  ));
+
+  $config = config('webform_guard_server.settings');
+  $config->set('report_frequencies', array(
+    'never' => 'Never',
+    'weekly' => 'Weekly',
+    'monthly' => 'Monthly',
+    'quarterly' => 'Quarterly',
+    'yearly' => 'Yearly',
+  ));
+  $config->save();
 }
 

@@ -112,6 +112,42 @@ function webform_guard_server_menu() {
     'type' => MENU_CALLBACK,
   );
 
+  $items['admin/config/webform-guard-server/tiers'] = array(
+    'title' => 'Tiers',
+    'description' => 'Manage subscription tiers.',
+    'page callback' => 'webform_guard_server_tiers_page',
+    'access arguments' => array('administer site configuration'),
+    'file' => 'webform_guard_server.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['admin/config/webform-guard-server/tiers/add'] = array(
+    'title' => 'Add tier',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('webform_guard_server_tier_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'webform_guard_server.admin.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
+
+  $items['admin/config/webform-guard-server/tiers/%/edit'] = array(
+    'title' => 'Edit tier',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('webform_guard_server_tier_form', 4),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'webform_guard_server.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/config/webform-guard-server/tiers/%/delete'] = array(
+    'title' => 'Delete tier',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('webform_guard_server_tier_delete_form', 4),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'webform_guard_server.admin.inc',
+    'type' => MENU_CALLBACK,
+  );
+
   $items['report-spam/%'] = array(
     'title' => 'Report spam',
     'page callback' => 'webform_guard_server_report_page',
@@ -331,6 +367,65 @@ function webform_guard_server_normalize_spam_identifier($type, $identifier) {
  * @return bool
  *   TRUE if the identifier is in the blocklist, FALSE otherwise.
  */
+/**
+ * Check whether an email domain matches the server domain blocklist.
+ *
+ * Supports three pattern types:
+ *   - Suffix:   .ru   — matches any domain ending in .ru
+ *   - Wildcard: spam* — matches via fnmatch() (* and ? supported)
+ *   - Exact:    mail.ru — case-insensitive exact domain match
+ *
+ * The blocklist is loaded from CMI config (cached) so no DB query is needed.
+ *
+ * @param string $email
+ *   The raw email address to check.
+ *
+ * @return bool
+ *   TRUE if the domain is blocked, FALSE otherwise.
+ */
+function webform_guard_server_domain_is_blocked($email) {
+  $patterns = config('webform_guard_server.settings')->get('domain_blocklist');
+  if (empty($patterns)) {
+    return FALSE;
+  }
+
+  $at = strrpos($email, '@');
+  if ($at === FALSE) {
+    return FALSE;
+  }
+  $domain = strtolower(trim(substr($email, $at + 1)));
+  if (empty($domain)) {
+    return FALSE;
+  }
+
+  foreach ($patterns as $pattern) {
+    $pattern = strtolower(trim($pattern));
+    if (empty($pattern)) {
+      continue;
+    }
+    if ($pattern[0] === '.') {
+      // Suffix match: .ru matches mail.ru, yandex.ru, etc.
+      if (str_ends_with($domain, $pattern)) {
+        return TRUE;
+      }
+    }
+    elseif (strpbrk($pattern, '*?') !== FALSE) {
+      // Wildcard match: fnmatch handles * and ?
+      if (fnmatch($pattern, $domain)) {
+        return TRUE;
+      }
+    }
+    else {
+      // Exact domain match.
+      if ($domain === $pattern) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
 function webform_guard_server_spam_identifier_exists($field, $identifier, $type) {
   $identifier = webform_guard_server_normalize_spam_identifier($type, $identifier);
   $query = db_select('webform_guard_spam_identifier', 's')
@@ -477,6 +572,14 @@ function webform_guard_server_check_submission() {
     );
   }
 
+  // @todo When tier limit enforcement is added (Phase 2), move this metrics
+  //   update and the monthly metrics write to after the response is sent.
+  //   Target standard shared hosting (Apache + mod_php, e.g. 20i): clear
+  //   output buffers, send Content-Length + Connection: close headers, echo
+  //   the JSON, call flush(), then do DB writes before exit(). This signals
+  //   to the client that the response is complete while the script continues.
+  //   webform_guard_server_json_response() will need a variant that closes
+  //   the connection without calling exit() so post-response work can run.
   db_update('webform_guard_clients')
     ->expression('check_count', 'check_count + :amount', array(':amount' => 1))
     ->condition('id', $client->id)
@@ -501,6 +604,20 @@ function webform_guard_server_check_submission() {
         'status' => 'subscription_expired',
         'action' => 'deliver',
         'details' => 'Subscription has expired. Submission allowed through.',
+        'subscription' => $subscription,
+      )
+    );
+  }
+
+  if (!empty($request->spam_identifier->value) &&
+      trim((string) $request->spam_identifier->type) === 'email' &&
+      webform_guard_server_domain_is_blocked((string) $request->spam_identifier->value)) {
+    webform_guard_server_add_site_metric($client->site_identifier);
+    webform_guard_server_json_response(
+      array(
+        'status' => 'bounced',
+        'action' => 'block',
+        'details' => 'The email domain is on the server blocklist.',
         'subscription' => $subscription,
       )
     );
@@ -613,6 +730,9 @@ function webform_guard_server_report_spam() {
  */
 function webform_guard_server_status() {
   $info = system_get_info('module', 'webform_guard_server');
+  // @todo Add supplier_name from config to this response so the client module
+  //   can display it on the settings page when a connection test succeeds.
+  //   config('webform_guard_server.settings')->get('supplier_name')
   $response = array(
     'status' => 'ok',
     'service' => 'webform_guard_server',

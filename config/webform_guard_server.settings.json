@@ -1,3 +1,13 @@
 {
-  "enable_report_spam": true
+  "_config_name": "webform_guard_server.settings",
+  "supplier_name": "",
+  "enable_report_spam": true,
+  "domain_blocklist": [],
+  "report_frequencies": {
+    "never": "Never",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "quarterly": "Quarterly",
+    "yearly": "Yearly"
+  }
 }

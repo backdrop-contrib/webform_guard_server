@@ -10,10 +10,12 @@ As a beta release, the core API, blocklist engine, client registry, and admin in
 
 * **Centralised Spam Blocklist:** A single shared blocklist protects all registered client sites simultaneously. Spam reported by any client is blocked for all.
 * **Per-Client API Keys:** Each client site gets its own unique API key and subscription record. Compromise one key without affecting others.
-* **Subscription Management:** Three-tier subscription system (Free, Active, Expired) with optional expiry dates. Expired subscriptions degrade gracefully — submissions are allowed through rather than blocked.
+* **Configurable Subscription Tiers _(Phase 1 — schema and admin UI only)_:** A fully configurable tier system lets you define named plans (e.g. Free Trial, Hosting Client, Tier 1) each with its own check limit, reset period (daily, monthly, annual, or lifetime total), and optional trial duration. Seven default tiers are provided on install and can be freely edited or extended via the admin UI. Trial tiers automatically pre-fill the client expiry date on the admin form. _Note: check limits are stored but not yet enforced on the API — limit enforcement requires the monthly metrics table, planned for Phase 2._
+* **Subscription Management:** Clients carry a subscription status (Free, Active, Expired) and optional expiry date. Expired subscriptions degrade gracefully — submissions are allowed through rather than blocked, so client sites are never silently broken by a lapsed subscription.
 * **Three REST API Endpoints:** `POST /api/v1/webform-guard/check-submission` to validate a submission, `POST /api/v1/webform-guard/report-spam` to add an identifier to the blocklist, and `GET /api/v1/webform-guard/status` for health checks and connection testing. The `api/v1/webform-guard/` namespace ensures these routes do not conflict with other API modules installed on the same server.
 * **Token-Based Spam Reporting:** A public `report/{token}` page allows recipients to report spam directly from a link in their notification email — no login required. Tokens are HMAC-SHA256 signed with the client's API key and expire after 30 days.
-* **Admin UI:** Full admin interface for managing registered clients (add, edit, delete, generate API keys), viewing and removing blocklist entries, and toggling spam reporting on or off.
+* **Domain Blocklist:** A global server-managed domain blocklist checked on every submission. Supports exact domain matching (`mail.ru`), TLD/suffix matching (`.ru` blocks all `.ru` addresses), and wildcard patterns (`spam*.com`). Managed via a simple textarea in the server settings — one pattern per line. All client sites are protected the moment the list is saved, with no changes required on any client site. Matched submissions are returned as `bounced` / `block`.
+* **Admin UI:** Full admin interface for managing registered clients (add, edit, delete, generate API keys), subscription tiers, viewing and removing blocklist entries, and configuring the domain blocklist and server settings.
 * **Views Integration:** Exposes the spam identifier blocklist and per-site blocked-submission metrics as Views base tables for custom reporting.
 * **Backdrop Native:** Built exclusively for Backdrop CMS using strict PHP 8.0+ standards and Backdrop APIs throughout.
 
@@ -31,11 +33,13 @@ Enable the module on the site that will act as your guard server.
 
 ## Configuration
 
-1. Navigate to **Admin → Configuration → Webform Guard Server → Clients** and add a record for each client site you wish to protect.
-2. For each client, click **Generate API key** and copy the generated key — you will paste this into the corresponding `webform_guard_client` settings on the client site.
-3. Set the **Site identifier** to match what the client module will send (recommended: the client site's domain, e.g. `mysite.co.uk`).
-4. Set the **Subscription status** to Free or Active as appropriate.
-5. Under the **Settings** tab, enable or disable the spam reporting endpoint (`POST /api/v1/report-spam`) as required.
+1. Navigate to **Admin → Configuration → Webform Guard Server → Tiers** to review or customise the available subscription tiers. Default tiers are seeded on install.
+2. Navigate to **Clients** and add a record for each client site you wish to protect.
+3. For each client, click **Generate API key** and copy the generated key — you will paste this into the corresponding `webform_guard_client` settings on the client site.
+4. Set the **Site identifier** to match what the client module will send (recommended: the client site's domain, e.g. `mysite.co.uk`).
+5. Select the appropriate **Subscription tier**. If the tier has a trial duration set, the expiry date will be populated automatically.
+6. Set the **Subscription status** to Free or Active as appropriate.
+7. Under the **Settings** tab, enable or disable the spam reporting endpoint (`POST /api/v1/report-spam`) as required.
 
 Client sites should point their **Guard server base URL** to this installation (e.g. `https://guard.example.com`) — the client module appends the API paths automatically.
 
